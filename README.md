@@ -69,8 +69,8 @@ STORAGE_PATH="storage"
 USE_IPV6=False
 USE_INTRO_MESSAGE=False
 ```
-DESTINATION_LANGUAGE - Language to translate all messages to.
-EXCLUDED_LANGUAGES - Additional languages (comma separated) that should not be translated.
-GROUPS_ID - List of groups (comma separated) to limit bot to, if empty then all groups can use this bot.
-FROM_USERS - List of users (comma separated) to limit bot to.
-USE_INTRO_MESSAGE - Send intro message to all groups in list.
+- DESTINATION_LANGUAGE - Language to translate all messages to.
+- EXCLUDED_LANGUAGES - Additional languages (comma separated) that should not be translated.
+- GROUPS_ID - List of groups (comma separated) to limit bot to, if empty then all groups can use this bot.
+- FROM_USERS - List of users (comma separated) to limit bot to.
+- USE_INTRO_MESSAGE - Send intro message to all groups in list.
