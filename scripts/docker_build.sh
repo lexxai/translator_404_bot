@@ -1,3 +1,5 @@
 #/usr/bin/env bash
 
-docker build -t translator_404_bot
+pushd ..
+docker build -t translator_404_bot .
+popd
