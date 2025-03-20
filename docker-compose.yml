@@ -1,0 +1,22 @@
+services:
+  bot:
+    build: .
+    container_name: translator_404_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - _storage:/app/storage
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"   # Limit to 1.5 CPU cores
+          memory: "512M"  # Limit memory to 512MB
+        reservations:
+          cpus: "0.2"   # Reserve at least 0.5 CPU cores
+          memory: "128M"  # Reserve at least 128MB
+
+volumes:
+  _storage:
+
+

@@ -1,9 +1,22 @@
+import logging
 import os
+import pickle
+from base64 import b64decode
+from pathlib import Path
 
 from telethon import TelegramClient, events
 from googletrans import Translator
-from langdetect import detect_langs
+from langdetect import detect_langs, DetectorFactory
 from dotenv import load_dotenv
+
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO
+)
+
+logger = logging.getLogger("bot")
+logging.getLogger("telethon").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 load_dotenv()
@@ -12,23 +25,90 @@ load_dotenv()
 api_id = int(os.environ.get("API_ID", 0))
 api_hash = os.environ.get("API_HASH")
 bot_token = os.environ.get("BOT_TOKEN")
-group_id = int(os.environ.get("GROUP_ID", 0))
-from_users = os.environ.get("FROM_USERS")
+assert api_id and api_hash and bot_token, "API credentials not found"
+groups_id = list(map(int, os.environ.get("GROUPS_ID", "0").strip().split(",")))
+from_users = os.environ.get("FROM_USERS", [])
+if isinstance(from_users, str):
+    from_users = [u.strip() for u in from_users.strip().split(",") if u.strip()]
 destination_language = os.environ.get("DESTINATION_LANGUAGE", "uk")
+storage_path = Path(os.environ.get("STORAGE_PATH", "storage"))
+excluded_languages = os.environ.get("EXCLUDED_LANGUAGES", [])
+if isinstance(excluded_languages, str):
+    excluded_languages = [
+        u.strip() for u in excluded_languages.strip().split(",") if u.strip()
+    ]
 
-
-translator = Translator()
-client = TelegramClient(".bot", api_id, api_hash, lang_code=destination_language).start(
-    bot_token=bot_token
+use_ipv6 = os.environ.get("USE_IPV6", "False").strip().lower() == "true"
+use_intro_message = (
+    os.environ.get("USE_INTRO_MESSAGE", "False").strip().lower() == "true"
 )
-excluded_users = set()
+debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
+excluded_languages.append(destination_language)
+excluded_senders_filename = ".excluded_senders.pickle"
 
 
-async def send_intro_message():
-    await client.send_message(group_id, "🚀 Bot started and ready to translate!")
+if debug:
+    logger.setLevel(logging.DEBUG)
+
+languages_map = {
+    b64decode(b"cnU=").decode(): "404",
+}
+excluded_senders = {}
+translator = Translator()
+client = TelegramClient(
+    storage_path / ".bot",
+    api_id,
+    api_hash,
+    lang_code=destination_language,
+    use_ipv6=use_ipv6,
+).start(bot_token=bot_token)
 
 
-def detect_language(text, probability_threshold=0.2):
+def add_excluded_sender(sender_id, group_id):
+    excluded_senders.setdefault(group_id, set()).add(sender_id)
+    save_excluded_senders()
+
+
+def remove_excluded_sender(sender_id, group_id):
+    if group_id in excluded_senders:
+        excluded_senders[group_id].discard(sender_id)
+        save_excluded_senders()
+
+
+def is_excluded_sender(sender_id, group_id):
+    return group_id in excluded_senders and sender_id in excluded_senders[group_id]
+
+
+def save_excluded_senders(storage_file: str = excluded_senders_filename):
+    if not storage_path.exists():
+        storage_path.mkdir(parents=True)
+    excluded_senders_path = storage_path / storage_file
+    try:
+        with excluded_senders_path.open("wb") as f:
+            pickle.dump(excluded_senders, f)
+    except Exception as e:
+        logger.error(e)
+
+
+def load_excluded_senders(storage_file: str = excluded_senders_filename):
+    if not storage_path.exists():
+        return
+    result = {}
+    excluded_senders_path = storage_path / storage_file
+    if excluded_senders_path.exists():
+        try:
+            with excluded_senders_path.open("rb") as f:
+                result = pickle.load(f)
+        except Exception as e:
+            logger.error(e)
+    return result
+
+
+def map_lang(lang):
+    return languages_map.get(lang, lang)
+
+
+def detect_language(text, probability_threshold=0.1):
     # detected_language = detect(text)
     detected_languages = detect_langs(text)
     detected_language = (
@@ -40,8 +120,9 @@ def detect_language(text, probability_threshold=0.2):
             and language.prob >= probability_threshold
         ):
             detected_language = language.lang
+            break
     # print(f"{detected_language=}")
-    # print(f"{detected_languages=}")
+    logger.debug(f"{detected_language=}, {detected_languages=}")
     return detected_language
 
 
@@ -53,8 +134,19 @@ def extract_text_from_message(message):
                 answer = ", ".join([str(answer.text.text) for answer in poll.answers])
                 return f"{question}: {answer}"
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error(e)
     return message.message
+
+
+async def send_intro_message():
+    try:
+        for entity in groups_id:
+            if entity:
+                await client.send_message(
+                    entity, "🚀 Bot started and ready to translate in this group!"
+                )
+    except Exception as e:
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/chat_id"))
@@ -63,7 +155,7 @@ async def handler_chat_id(event):
     try:
         await event.reply(f"Group ID: {detected_chat_id}")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/help"))
@@ -79,39 +171,38 @@ async def handler_help(event):
     try:
         await event.reply(help_text)
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/check"))
 async def handler_check(event):
     try:
-        sender_id = event.sender_id
-        included = sender_id not in excluded_users
+        excluded = is_excluded_sender(event.sender_id, event.chat_id)
         await event.reply(
-            f"You are {'included' if included else 'excluded'} for using the bot."
+            f"You are **{'excluded' if excluded else 'included'}** for using the bot in this group."
         )
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/exclude"))
 async def handler_exclude(event):
     try:
-        sender_id = event.sender_id
-        excluded_users.add(sender_id)
-        await event.reply(f"You have been excluded from using the bot.")
+        add_excluded_sender(event.sender_id, event.chat_id)
+        await event.reply(
+            "You have been **excluded** from using the bot in this group."
+        )
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/include"))
 async def handler_include(event):
     try:
-        sender_id = event.sender_id
-        excluded_users.discard(sender_id)
-        await event.reply(f"You have been included for using the bot.")
+        remove_excluded_sender(event.sender_id, event.chat_id)
+        await event.reply("You have been **included** for using the bot in this group.")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 @client.on(events.NewMessage(pattern=r"^/translate\s+(\w+)\s+(.+)"))
@@ -122,50 +213,61 @@ async def translate_handler(event):
 
     try:
         translated = await translator.translate(text, dest=target_lang)
-        await event.reply(f"**Translated ({target_lang}):**\n{translated.text}")
+        await event.reply(
+            f"**Translated ({map_lang(target_lang)}):**\n{translated.text}"
+        )
     except Exception as e:
-        await event.reply(f"Translation failed: {e}")
+        try:
+            await event.reply(f"Translation failed: {e}")
+        except Exception as e:
+            logger.error(e)
 
 
 # @client.on(events.NewMessage)
 async def handler(event):
     try:
+        if event.raw_text.startswith("/"):
+            return
+        if is_excluded_sender(event.sender_id, event.chat_id):
+            return
         original_text = extract_text_from_message(event.message)
-        if original_text.startswith("/"):
-            return
-        sender_id = event.sender_id
-        if sender_id in excluded_users:
-            return
-        detected_chat_id = event.chat_id
+
+        # detected_chat_id = event.chat_id
         # print(f"[{detected_chat_id}][{sender_id}] {event.message.message=}")
 
         detected_language = detect_language(original_text)
-        if detected_language != destination_language:
+        if detected_language not in excluded_languages:
             translated_text = await translator.translate(
                 original_text, dest=destination_language
             )
             await event.reply(
-                f"🔄 *Translated from '{detected_language}':*\n{translated_text.text}",
-                parse_mode="markdown",
+                f"🔄 **Translated ({map_lang(detected_language)}):**\n{translated_text.text}"
             )
 
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(e)
 
 
 async def main():
-    # await send_intro_message()
-    # print("Bot started successfully!")
+    if use_intro_message:
+        await send_intro_message()
+    logger.info("Starting bot...")
     options = {"incoming": True, "pattern": r"^(?!/).*"}
     if from_users:
         options["from_users"] = from_users
-    if group_id:
-        options["chats"] = group_id
+    if groups_id:
+        options["chats"] = groups_id
     client.add_event_handler(handler, events.NewMessage(**options))
-    await client.run_until_disconnected()  # Keep bot running
+    await client.run_until_disconnected()
 
 
 if __name__ == "__main__":
+    excluded_senders = load_excluded_senders()
+    logger.debug(f"{excluded_senders=}")
+    logger.debug(f"{excluded_languages=}")
+    logger.debug(f"{from_users=}")
+    DetectorFactory.seed = 27
+
     try:
         with client:
             client.loop.run_until_complete(main())

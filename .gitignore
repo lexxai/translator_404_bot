@@ -174,3 +174,5 @@ cython_debug/
 .pypirc
 /poetry.lock
 /.*.*
+/storage/.bot.session
+/storage/.excluded_senders.pickle
