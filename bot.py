@@ -137,7 +137,7 @@ async def handler(event):
         if sender_id in excluded_users:
             return
         detected_chat_id = event.chat_id
-        print(f"[{detected_chat_id}][{sender_id}] {event.message.message=}")
+        # print(f"[{detected_chat_id}][{sender_id}] {event.message.message=}")
 
         detected_language = detect_language(original_text)
         if detected_language != destination_language:
@@ -155,7 +155,7 @@ async def handler(event):
 
 async def main():
     # await send_intro_message()
-    print("Bot started successfully!")
+    # print("Bot started successfully!")
     options = {"incoming": True, "pattern": r"^(?!/).*"}
     if from_users:
         options["from_users"] = from_users
