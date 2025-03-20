@@ -1,0 +1,13 @@
+services:
+  bot:
+    build: .
+    container_name: translator_404_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - translator_404_bot_storage:/app/storage
+
+volumes:
+  translator_404_bot_storage:
+
