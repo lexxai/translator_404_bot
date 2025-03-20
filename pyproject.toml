@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "translator-404-bot"
-version = "0.1.0"
-description = ""
+version = "1.0.0"
+description = "Telegram bot for translating messages in chats with text in another language (404)"
 authors = ["lexxai <lexxai@gmail.com>"]
 license = "MIT"
 readme = "README.md"
