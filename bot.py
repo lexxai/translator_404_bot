@@ -6,16 +6,17 @@ from pathlib import Path
 
 from telethon import TelegramClient, events
 from googletrans import Translator
-from langdetect import detect_langs
+from langdetect import detect_langs, DetectorFactory
 from dotenv import load_dotenv
 
 
 logging.basicConfig(
-    format="%(asctime)s [%(levelname)s] %(name)s: - %(message)s", level=logging.INFO
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO
 )
 
 logger = logging.getLogger("bot")
 logging.getLogger("telethon").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 load_dotenv()
@@ -26,16 +27,28 @@ api_hash = os.environ.get("API_HASH")
 bot_token = os.environ.get("BOT_TOKEN")
 assert api_id and api_hash and bot_token, "API credentials not found"
 groups_id = list(map(int, os.environ.get("GROUPS_ID", "0").strip().split(",")))
-from_users = os.environ.get("FROM_USERS")
+from_users = os.environ.get("FROM_USERS", [])
+if isinstance(from_users, str):
+    from_users = [u.strip() for u in from_users.strip().split(",") if u.strip()]
 destination_language = os.environ.get("DESTINATION_LANGUAGE", "uk")
 storage_path = Path(os.environ.get("STORAGE_PATH", "storage"))
-excluded_languages = os.environ.get("EXCLUDED_LANGUAGES", "").strip().lower().split(",")
+excluded_languages = os.environ.get("EXCLUDED_LANGUAGES", [])
+if isinstance(excluded_languages, str):
+    excluded_languages = [
+        u.strip() for u in excluded_languages.strip().split(",") if u.strip()
+    ]
+
 use_ipv6 = os.environ.get("USE_IPV6", "False").strip().lower() == "true"
 use_intro_message = (
     os.environ.get("USE_INTRO_MESSAGE", "False").strip().lower() == "true"
 )
+debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
 excluded_senders_filename = ".excluded_senders.pickle"
+
+
+if debug:
+    logger.setLevel(logging.DEBUG)
 
 languages_map = {
     b64decode(b"cnU=").decode(): "404",
@@ -204,7 +217,10 @@ async def translate_handler(event):
             f"**Translated ({map_lang(target_lang)}):**\n{translated.text}"
         )
     except Exception as e:
-        await event.reply(f"Translation failed: {e}")
+        try:
+            await event.reply(f"Translation failed: {e}")
+        except Exception as e:
+            logger.error(e)
 
 
 # @client.on(events.NewMessage)
@@ -212,7 +228,7 @@ async def handler(event):
     try:
         if event.raw_text.startswith("/"):
             return
-        if is_excluded_sender(event.sender_id):
+        if is_excluded_sender(event.sender_id, event.chat_id):
             return
         original_text = extract_text_from_message(event.message)
 
@@ -246,9 +262,12 @@ async def main():
 
 
 if __name__ == "__main__":
-
     excluded_senders = load_excluded_senders()
-    logger.info(excluded_senders)
+    logger.debug(f"{excluded_senders=}")
+    logger.debug(f"{excluded_languages=}")
+    logger.debug(f"{from_users=}")
+    DetectorFactory.seed = 27
+
     try:
         with client:
             client.loop.run_until_complete(main())
