@@ -46,14 +46,15 @@ use_intro_message = (
 debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
 
-language_detection = LanguageDetection(destination_language, excluded_languages)
-excluded_senders = ExcludedSenders(storage_path)
 
 if debug:
     logger.setLevel(logging.DEBUG)
 
 
+language_detection = LanguageDetection(destination_language, excluded_languages)
+excluded_senders = ExcludedSenders(storage_path)
 translator = Translator()
+
 client = TelegramClient(
     storage_path / ".bot",
     api_id,
@@ -86,11 +87,34 @@ async def send_intro_message():
         logger.error(e)
 
 
+async def answer_private_message(event):
+    try:
+        group_name = await get_group_name(event)
+        if group_name:
+            await event.reply("I've sent answer you privately. Check your messages!")
+    except Exception as e:
+        logger.error(e)
+
+
+async def get_group_name(event):
+    try:
+        entity = await client.get_entity(event.chat_id)
+        group_name = entity.title
+        return group_name
+    except Exception as e:
+        logger.error(e)
+
+
 @client.on(events.NewMessage(pattern=r"^/chat_id"))
 async def handler_chat_id(event):
     detected_chat_id = event.chat_id
+    sender_id = event.sender_id
+    group_name = await get_group_name(event)
     try:
-        await event.reply(f"Group ID: {detected_chat_id}")
+        await client.send_message(
+            sender_id, f"Group ID: {detected_chat_id} of '{group_name}'"
+        )
+        await answer_private_message(event)
     except Exception as e:
         logger.error(e)
 
@@ -116,9 +140,13 @@ async def handler_help(event):
 async def handler_check(event):
     try:
         excluded = excluded_senders.is_excluded_sender(event.sender_id, event.chat_id)
-        await event.reply(
-            f"You are **{'excluded' if excluded else 'included'}** for using the bot in this group."
+        sender_id = event.sender_id
+        group_name = await get_group_name(event)
+        await client.send_message(
+            sender_id,
+            f"You are **{'excluded' if excluded else 'included'}** for using the bot in group: '{group_name}'.",
         )
+        await answer_private_message(event)
     except Exception as e:
         logger.error(e)
 
@@ -127,9 +155,13 @@ async def handler_check(event):
 async def handler_exclude(event):
     try:
         excluded_senders.add_excluded_sender(event.sender_id, event.chat_id)
-        await event.reply(
-            "You have been **excluded** from using the bot in this group."
+        sender_id = event.sender_id
+        group_name = await get_group_name(event)
+        await client.send_message(
+            sender_id,
+            f"You have been **excluded** from using the bot in group: '{group_name}'.",
         )
+        await answer_private_message(event)
     except Exception as e:
         logger.error(e)
 
@@ -138,7 +170,13 @@ async def handler_exclude(event):
 async def handler_include(event):
     try:
         excluded_senders.remove_excluded_sender(event.sender_id, event.chat_id)
-        await event.reply("You have been **included** for using the bot in this group.")
+        sender_id = event.sender_id
+        group_name = await get_group_name(event)
+        await client.send_message(
+            sender_id,
+            f"You have been **included** for using the bot in group: '{group_name}'.",
+        )
+        await answer_private_message(event)
     except Exception as e:
         logger.error(e)
 
