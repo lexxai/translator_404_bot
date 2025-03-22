@@ -1,7 +1,7 @@
 import logging
 from base64 import b64decode
 
-from langdetect import detect_langs
+from langdetect import detect_langs, DetectorFactory
 
 logger = logging.getLogger("bot." + __name__)
 
@@ -15,11 +15,12 @@ class LanguageDetection:
         self,
         destination_language: str,
         excluded_languages: list[str],
-        probability_threshold: int = 0.1,
+        probability_threshold: float = 0.1,
     ):
         self.destination_language = destination_language
         self.excluded_languages = excluded_languages
         self.probability_threshold = probability_threshold
+        DetectorFactory.seed = 27
 
     def is_excluded_language(self, language):
         return language in self.excluded_languages

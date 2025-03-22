@@ -5,7 +5,7 @@ from pathlib import Path
 
 from telethon import TelegramClient, events
 from googletrans import Translator
-from langdetect import DetectorFactory
+
 from dotenv import load_dotenv
 
 from ext.language_detection import LanguageDetection
@@ -246,7 +246,6 @@ if __name__ == "__main__":
     logger.debug(f"{excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
     logger.debug(f"{from_users=}")
-    DetectorFactory.seed = 27
 
     try:
         with client:
