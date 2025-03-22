@@ -39,8 +39,8 @@ class Sessions:
         self.sessions[category][group_id].discard(value)
         self.save()
 
-    def is_exist(self, category: Category, group_id: int, value):
-        return value in self.sessions[category][group_id]
+    def is_exists(self, category: Category, group_id: int, value):
+        return value in self.sessions.get(category, {}).get(group_id, set())
 
     def add_excluded_sender(self, sender_id, group_id: int):
         self.add(Category.EXCLUDED_SENDERS, group_id, sender_id)
@@ -50,11 +50,9 @@ class Sessions:
         if group_id in self.sessions[category]:
             self.remove(category, group_id, sender_id)  # remove
 
-    def is_excluded_sender(self, sender_id, group_id: int):
+    def is_excluded_sender(self, sender_id: int, group_id: int):
         category = Category.EXCLUDED_SENDERS
-        return group_id in self.sessions[category] and self.is_exist(
-            category, group_id, sender_id
-        )
+        return self.is_exists(category, group_id, sender_id)
 
     def save(self, storage_file: str = None):
         storage_file = storage_file or self.sessions_filename

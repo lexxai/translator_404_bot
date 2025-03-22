@@ -7,7 +7,7 @@ from googletrans import Translator
 
 from dotenv import load_dotenv
 
-from ext.excluded_senders import ExcludedSenders
+from ext.sessions import Sessions, Category
 from ext.language_detection import LanguageDetection
 
 logging.basicConfig(
@@ -52,7 +52,7 @@ if debug:
 
 
 language_detection = LanguageDetection(destination_language, excluded_languages)
-excluded_senders = ExcludedSenders(storage_path)
+sessions = Sessions(storage_path)
 translator = Translator()
 
 client = TelegramClient(
@@ -62,6 +62,11 @@ client = TelegramClient(
     lang_code=destination_language,
     use_ipv6=use_ipv6,
 ).start(bot_token=bot_token)
+
+
+def get_command_args(event):
+    match = event.pattern_match
+    return match.group
 
 
 def extract_text_from_message(message):
@@ -87,19 +92,28 @@ async def send_intro_message():
         logger.error(e)
 
 
-async def answer_private_message(event):
+async def answer_private_message(
+    event, chat_id: int | None = None, sender_id: int | None = None
+):
     try:
+        chat_id = chat_id or event.chat_id
+        sender_id = sender_id or event.sender_id
+        if sessions.is_exists(Category.INFORMED, chat_id, sender_id):
+            return
+        sessions.add(Category.INFORMED, chat_id, sender_id)
         group_name = await get_group_name(event)
         if group_name:
-            await event.reply("I've sent answer you privately. Check your messages!")
+            await event.reply(
+                "I've sent the answer to you privately. Check your personal messages from this bot! This notification will only be shown to you once."
+            )
     except Exception as e:
         logger.error(e)
 
 
-async def get_group_name(event):
+async def get_group_name(event) -> str | None:
     try:
         entity = await client.get_entity(event.chat_id)
-        group_name = entity.title
+        group_name = entity.title if entity and hasattr(entity, "title") else None
         return group_name
     except Exception as e:
         logger.error(e)
@@ -107,14 +121,12 @@ async def get_group_name(event):
 
 @client.on(events.NewMessage(pattern=r"^/chat_id"))
 async def handler_chat_id(event):
-    detected_chat_id = event.chat_id
+    chat_id = event.chat_id
     sender_id = event.sender_id
     group_name = await get_group_name(event)
     try:
-        await client.send_message(
-            sender_id, f"Group ID: {detected_chat_id} of '{group_name}'"
-        )
-        await answer_private_message(event)
+        await client.send_message(sender_id, f"Group ID: {chat_id} of '{group_name}'")
+        await answer_private_message(event, chat_id, sender_id)
     except Exception as e:
         logger.error(e)
 
@@ -136,11 +148,12 @@ async def handler_help(event):
         logger.error(e)
 
 
-@client.on(events.NewMessage(pattern=r"^/check"))
+@client.on(events.NewMessage(pattern=r"^/check\s+(\d+)"))
 async def handler_check(event):
     try:
-        excluded = excluded_senders.is_excluded_sender(event.sender_id, event.chat_id)
+        chat_id = get_command_args(event)[1] or event.chat_id
         sender_id = event.sender_id
+        excluded = sessions.is_exists(Category.EXCLUDED_SENDERS, chat_id, sender_id)
         group_name = await get_group_name(event)
         await client.send_message(
             sender_id,
@@ -154,7 +167,7 @@ async def handler_check(event):
 @client.on(events.NewMessage(pattern=r"^/exclude"))
 async def handler_exclude(event):
     try:
-        excluded_senders.add_excluded_sender(event.sender_id, event.chat_id)
+        sessions.add(Category.EXCLUDED_SENDERS, event.chat_id, event.sender_id)
         sender_id = event.sender_id
         group_name = await get_group_name(event)
         await client.send_message(
@@ -169,7 +182,7 @@ async def handler_exclude(event):
 @client.on(events.NewMessage(pattern=r"^/include"))
 async def handler_include(event):
     try:
-        excluded_senders.remove_excluded_sender(event.sender_id, event.chat_id)
+        sessions.remove(Category.EXCLUDED_SENDERS, event.chat_id, event.sender_id)
         sender_id = event.sender_id
         group_name = await get_group_name(event)
         await client.send_message(
@@ -204,7 +217,7 @@ async def handler(event):
     try:
         if event.raw_text.startswith("/"):
             return
-        if excluded_senders.is_excluded_sender(event.sender_id, event.chat_id):
+        if sessions.is_excluded_sender(event.sender_id, event.chat_id):
             return
         original_text = extract_text_from_message(event.message)
 
@@ -238,8 +251,8 @@ async def main():
 
 
 if __name__ == "__main__":
-    excluded_senders.load_excluded_senders()
-    logger.debug(f"{excluded_senders=}")
+    sessions.load()
+    logger.debug(f"{sessions.excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
     logger.debug(f"{from_users=}")
 
