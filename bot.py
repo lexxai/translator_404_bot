@@ -1,6 +1,5 @@
 import logging
 import os
-import pickle
 from pathlib import Path
 
 from telethon import TelegramClient, events
@@ -8,6 +7,7 @@ from googletrans import Translator
 
 from dotenv import load_dotenv
 
+from ext.excluded_senders import ExcludedSenders
 from ext.language_detection import LanguageDetection
 
 logging.basicConfig(
@@ -45,16 +45,14 @@ use_intro_message = (
 )
 debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
-excluded_senders_filename = ".excluded_senders.pickle"
 
 language_detection = LanguageDetection(destination_language, excluded_languages)
-
+excluded_senders = ExcludedSenders(storage_path)
 
 if debug:
     logger.setLevel(logging.DEBUG)
 
 
-excluded_senders = {}
 translator = Translator()
 client = TelegramClient(
     storage_path / ".bot",
@@ -63,46 +61,6 @@ client = TelegramClient(
     lang_code=destination_language,
     use_ipv6=use_ipv6,
 ).start(bot_token=bot_token)
-
-
-def add_excluded_sender(sender_id, group_id):
-    excluded_senders.setdefault(group_id, set()).add(sender_id)
-    save_excluded_senders()
-
-
-def remove_excluded_sender(sender_id, group_id):
-    if group_id in excluded_senders:
-        excluded_senders[group_id].discard(sender_id)
-        save_excluded_senders()
-
-
-def is_excluded_sender(sender_id, group_id):
-    return group_id in excluded_senders and sender_id in excluded_senders[group_id]
-
-
-def save_excluded_senders(storage_file: str = excluded_senders_filename):
-    if not storage_path.exists():
-        storage_path.mkdir(parents=True)
-    excluded_senders_path = storage_path / storage_file
-    try:
-        with excluded_senders_path.open("wb") as f:
-            pickle.dump(excluded_senders, f)
-    except Exception as e:
-        logger.error(e)
-
-
-def load_excluded_senders(storage_file: str = excluded_senders_filename):
-    if not storage_path.exists():
-        return
-    result = {}
-    excluded_senders_path = storage_path / storage_file
-    if excluded_senders_path.exists():
-        try:
-            with excluded_senders_path.open("rb") as f:
-                result = pickle.load(f)
-        except Exception as e:
-            logger.error(e)
-    return result
 
 
 def extract_text_from_message(message):
@@ -157,7 +115,7 @@ async def handler_help(event):
 @client.on(events.NewMessage(pattern=r"^/check"))
 async def handler_check(event):
     try:
-        excluded = is_excluded_sender(event.sender_id, event.chat_id)
+        excluded = excluded_senders.is_excluded_sender(event.sender_id, event.chat_id)
         await event.reply(
             f"You are **{'excluded' if excluded else 'included'}** for using the bot in this group."
         )
@@ -168,7 +126,7 @@ async def handler_check(event):
 @client.on(events.NewMessage(pattern=r"^/exclude"))
 async def handler_exclude(event):
     try:
-        add_excluded_sender(event.sender_id, event.chat_id)
+        excluded_senders.add_excluded_sender(event.sender_id, event.chat_id)
         await event.reply(
             "You have been **excluded** from using the bot in this group."
         )
@@ -179,7 +137,7 @@ async def handler_exclude(event):
 @client.on(events.NewMessage(pattern=r"^/include"))
 async def handler_include(event):
     try:
-        remove_excluded_sender(event.sender_id, event.chat_id)
+        excluded_senders.remove_excluded_sender(event.sender_id, event.chat_id)
         await event.reply("You have been **included** for using the bot in this group.")
     except Exception as e:
         logger.error(e)
@@ -208,7 +166,7 @@ async def handler(event):
     try:
         if event.raw_text.startswith("/"):
             return
-        if is_excluded_sender(event.sender_id, event.chat_id):
+        if excluded_senders.is_excluded_sender(event.sender_id, event.chat_id):
             return
         original_text = extract_text_from_message(event.message)
 
@@ -242,7 +200,7 @@ async def main():
 
 
 if __name__ == "__main__":
-    excluded_senders = load_excluded_senders()
+    excluded_senders.load_excluded_senders()
     logger.debug(f"{excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
     logger.debug(f"{from_users=}")
