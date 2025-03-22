@@ -1,7 +1,6 @@
 import logging
 import os
 import pickle
-from base64 import b64decode
 from pathlib import Path
 
 from telethon import TelegramClient, events
@@ -147,7 +146,7 @@ async def handler_help(event):
         "/exclude - Exclude current user from automatically translates\n"
         "/include - Include current user for automatically translates\n"
         "/check - Check if included current user for automatically translates\n"
-        "Version: {version}".format(version=__version__)
+        "__Version__: {version}".format(version=__version__)
     )
     try:
         await event.reply(help_text)

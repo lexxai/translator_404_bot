@@ -8,12 +8,18 @@ logger = logging.getLogger("bot." + __name__)
 
 class LanguageDetection:
     languages_map = {
-        b64decode(b"cnU=").decode(): "404",
+        b64decode("=uNC"[::-1].swapcase().encode()).decode(): "404",
     }
 
-    def __init__(self, destination_language, excluded_languages):
+    def __init__(
+        self,
+        destination_language: str,
+        excluded_languages: list[str],
+        probability_threshold: int = 0.1,
+    ):
         self.destination_language = destination_language
         self.excluded_languages = excluded_languages
+        self.probability_threshold = probability_threshold
 
     def is_excluded_language(self, language):
         return language in self.excluded_languages
@@ -22,7 +28,7 @@ class LanguageDetection:
     def map_lang(cls, lang):
         return cls.languages_map.get(lang, lang)
 
-    def detect_language(self, text, probability_threshold=0.1):
+    def detect_language(self, text):
         # detected_language = detect(text)
         detected_languages = detect_langs(text)
         detected_language = (
@@ -31,7 +37,7 @@ class LanguageDetection:
         for language in detected_languages:
             if (
                 language.lang == self.destination_language
-                and language.prob >= probability_threshold
+                and language.prob >= self.probability_threshold
             ):
                 detected_language = language.lang
                 break
