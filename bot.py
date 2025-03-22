@@ -6,9 +6,10 @@ from pathlib import Path
 
 from telethon import TelegramClient, events
 from googletrans import Translator
-from langdetect import detect_langs, DetectorFactory
+from langdetect import DetectorFactory
 from dotenv import load_dotenv
 
+from ext.language_detection import LanguageDetection
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO
@@ -21,6 +22,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 
+__version__ = os.environ.get("VERSION", "dev")
 # Your API credentials (Get from https://my.telegram.org)
 api_id = int(os.environ.get("API_ID", 0))
 api_hash = os.environ.get("API_HASH")
@@ -46,13 +48,13 @@ debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
 excluded_senders_filename = ".excluded_senders.pickle"
 
+language_detection = LanguageDetection(destination_language, excluded_languages)
+
 
 if debug:
     logger.setLevel(logging.DEBUG)
 
-languages_map = {
-    b64decode(b"cnU=").decode(): "404",
-}
+
 excluded_senders = {}
 translator = Translator()
 client = TelegramClient(
@@ -104,28 +106,6 @@ def load_excluded_senders(storage_file: str = excluded_senders_filename):
     return result
 
 
-def map_lang(lang):
-    return languages_map.get(lang, lang)
-
-
-def detect_language(text, probability_threshold=0.1):
-    # detected_language = detect(text)
-    detected_languages = detect_langs(text)
-    detected_language = (
-        detected_languages[0].lang if len(detected_languages) > 0 else "?"
-    )
-    for language in detected_languages:
-        if (
-            language.lang == destination_language
-            and language.prob >= probability_threshold
-        ):
-            detected_language = language.lang
-            break
-    # print(f"{detected_language=}")
-    logger.debug(f"{detected_language=}, {detected_languages=}")
-    return detected_language
-
-
 def extract_text_from_message(message):
     if message.media:
         try:
@@ -167,6 +147,7 @@ async def handler_help(event):
         "/exclude - Exclude current user from automatically translates\n"
         "/include - Include current user for automatically translates\n"
         "/check - Check if included current user for automatically translates\n"
+        "Version: {version}".format(version=__version__)
     )
     try:
         await event.reply(help_text)
@@ -214,7 +195,7 @@ async def translate_handler(event):
     try:
         translated = await translator.translate(text, dest=target_lang)
         await event.reply(
-            f"**Translated ({map_lang(target_lang)}):**\n{translated.text}"
+            f"**Translated ({language_detection.map_lang(target_lang)}):**\n{translated.text}"
         )
     except Exception as e:
         try:
@@ -235,13 +216,13 @@ async def handler(event):
         # detected_chat_id = event.chat_id
         # print(f"[{detected_chat_id}][{sender_id}] {event.message.message=}")
 
-        detected_language = detect_language(original_text)
+        detected_language = language_detection.detect_language(original_text)
         if detected_language not in excluded_languages:
             translated_text = await translator.translate(
                 original_text, dest=destination_language
             )
             await event.reply(
-                f"🔄 **Translated ({map_lang(detected_language)}):**\n{translated_text.text}"
+                f"🔄 **Translated ({language_detection.map_lang(detected_language)}):**\n{translated_text.text}"
             )
 
     except Exception as e:
