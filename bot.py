@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from tomllib import load as load_toml
 
 from telethon import TelegramClient, events
 from googletrans import Translator
@@ -24,7 +25,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 load_dotenv()
 
-__version__ = os.environ.get("VERSION", "dev")
 # Your API credentials (Get from https://my.telegram.org)
 api_id = int(os.environ.get("API_ID", 0))
 api_hash = os.environ.get("API_HASH")
@@ -65,6 +65,18 @@ client = TelegramClient(
     lang_code=destination_language,
     use_ipv6=use_ipv6,
 ).start(bot_token=bot_token)
+
+
+def get_version():
+    pyproject_toml = Path(__file__).parent / "pyproject.toml"
+    try:
+        if not pyproject_toml.exists():
+            raise FileNotFoundError
+        with pyproject_toml.open("rb") as f:
+            return load_toml(f)["tool"]["poetry"]["version"]
+    except Exception as e:
+        logger.error(e)
+        return "0.0.1-dev"
 
 
 def get_command_args(event):
@@ -316,6 +328,8 @@ async def main():
 
 
 if __name__ == "__main__":
+    __version__: str | Any = os.environ.get("VERSION", get_version())
+    logger.debug(f"Version: {__version__}")
     sessions.load()
     logger.debug(f"{sessions.excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
