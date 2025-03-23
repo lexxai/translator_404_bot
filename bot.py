@@ -48,11 +48,12 @@ use_intro_message = (
 )
 debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
-
+trust_telegram_language = (
+    os.environ.get("TRUST_TELEGRAM_LANGUAGE", "true").strip().lower() == "true"
+)
 
 if debug:
     logger.setLevel(logging.DEBUG)
-
 
 language_detection = LanguageDetection(destination_language, excluded_languages)
 sessions = Sessions(storage_path)
@@ -298,9 +299,15 @@ async def handler(event):
         if sessions.is_exists(
             Category.EXCLUDED_SENDERS, event.chat_id, event.sender_id
         ):
+            logger.debug(f"Sender '{event.sender_id}' is excluded from translation.")
+            return
+        sender_language = event.sender.lang_code
+        if sender_language and sender_language == destination_language:
+            logger.debug(
+                f"Sender language '{sender_language}' is trusted and excluded from translation."
+            )
             return
         original_text = extract_text_from_message(event.message)
-
         detected_language = await language_detection.detect_language(original_text)
         if detected_language not in excluded_languages:
             translated_text = await translator.translate(
