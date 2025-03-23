@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import pickle
 from enum import StrEnum
@@ -42,7 +43,7 @@ class Sessions:
     def is_exists(self, category: Category, group_id: int, value):
         return value in self.sessions.get(category, {}).get(group_id, set())
 
-    async def save(self, storage_file: str = None):
+    def _save(self, storage_file: str = None):
         storage_file = storage_file or self.sessions_filename
         self.storage_path.mkdir(parents=True, exist_ok=True)
         excluded_senders_path = self.storage_path / storage_file
@@ -51,6 +52,9 @@ class Sessions:
                 pickle.dump(self.sessions, f)
         except Exception as e:
             logger.error(e)
+
+    async def save(self, storage_file: str = None):
+        await asyncio.to_thread(self._save, storage_file)
 
     def load(self, storage_file: str = None) -> None:
         storage_file = storage_file or self.sessions_filename
