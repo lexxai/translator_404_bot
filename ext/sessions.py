@@ -5,7 +5,6 @@ from enum import StrEnum
 from pathlib import Path
 
 logger = logging.getLogger("bot." + __name__)
-locker = asyncio.Lock()
 
 
 class Category(StrEnum):
@@ -14,10 +13,13 @@ class Category(StrEnum):
 
 
 class Sessions:
-    def __init__(self, storage_path: Path):
+    def __init__(self, storage_path: Path = None):
         self.sessions = {Category.EXCLUDED_SENDERS: {}, Category.INFORMED: {}}
         self.sessions_filename = ".sessions.pickle"
-        self.storage_path = storage_path
+        self.storage_path = storage_path or Path(__file__).parent.parent.joinpath(
+            "storage"
+        )
+        self.locker = asyncio.Lock()
 
     @property
     def excluded_senders(self):
@@ -34,12 +36,14 @@ class Sessions:
         return str(self.sessions)
 
     async def add(self, category: Category, group_id: int, value):
-        self.sessions[category].setdefault(group_id, set()).add(value)
-        await self.save()
+        async with self.locker:
+            self.sessions[category].setdefault(group_id, set()).add(value)
+            await self.save()
 
     async def remove(self, category: Category, group_id: int, value):
-        self.sessions[category][group_id].discard(value)
-        await self.save()
+        async with self.locker:
+            self.sessions[category][group_id].discard(value)
+            await self.save()
 
     def is_exists(self, category: Category, group_id: int, value):
         return value in self.sessions.get(category, {}).get(group_id, set())
@@ -55,12 +59,11 @@ class Sessions:
             logger.error(e)
 
     async def save(self, storage_file: str = None):
-        async with locker:
-            try:
-                # Run the blocking I/O operation in a separate thread
-                await asyncio.to_thread(self._save, storage_file)
-            except Exception as e:
-                logger.error(f"Error during save: {e}")
+        try:
+            # Run the blocking I/O operation in a separate thread
+            await asyncio.to_thread(self._save, storage_file)
+        except Exception as e:
+            logger.error(f"Error during save: {e}")
 
     def load(self, storage_file: str = None) -> None:
         storage_file = storage_file or self.sessions_filename
