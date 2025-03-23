@@ -68,8 +68,19 @@ client = TelegramClient(
 def get_command_args(event):
     match = event.pattern_match
     result = match.groups()
-    logger.debug(f"{result=}")
+    # logger.debug(f"{result=}")
     return result
+
+
+async def get_chat_id_from_arg(event) -> int | None:
+    arg_1 = get_command_args(event)[0]
+    chat_id = int(arg_1) if arg_1 else event.chat_id
+    if not arg_1 and not event.is_group:
+        await event.reply(
+            "You must specify a group ID or join a group to use this command."
+        )
+        return None
+    return chat_id
 
 
 def extract_text_from_message(message):
@@ -158,12 +169,8 @@ async def handler_help(event):
 @client.on(events.NewMessage(pattern=r"^/check\s?([-0-9]*)"))
 async def handler_check(event):
     try:
-        arg_1 = get_command_args(event)[0]
-        chat_id = int(arg_1) if arg_1 else event.chat_id
-        if not arg_1 and not event.is_group:
-            await event.reply(
-                "You must specify a group ID or join a group to use this command."
-            )
+        chat_id = await get_chat_id_from_arg(event)
+        if not chat_id:
             return None
         sender_id = event.sender_id
         excluded = sessions.is_exists(Category.EXCLUDED_SENDERS, chat_id, sender_id)
