@@ -19,6 +19,8 @@ class Sessions:
         self.storage_path = storage_path or Path(__file__).parent.parent.joinpath(
             "storage"
         )
+        self.storage_path.mkdir(parents=True, exist_ok=True)
+        self.sessions_path = self.storage_path / self.sessions_filename
         self.locker = asyncio.Lock()
 
     @property
@@ -48,31 +50,26 @@ class Sessions:
     def is_exists(self, category: Category, group_id: int, value):
         return value in self.sessions.get(category, {}).get(group_id, set())
 
-    def _save(self, storage_file: str = None):
-        storage_file = storage_file or self.sessions_filename
-        self.storage_path.mkdir(parents=True, exist_ok=True)
-        excluded_senders_path = self.storage_path / storage_file
+    def _save(self):
         try:
-            with excluded_senders_path.open("wb") as f:
+            with self.sessions_path.open("wb") as f:
                 pickle.dump(self.sessions, f)
         except Exception as e:
             logger.error(e)
 
-    async def save(self, storage_file: str = None):
+    async def save(self):
         try:
             # Run the blocking I/O operation in a separate thread
-            await asyncio.to_thread(self._save, storage_file)
+            await asyncio.to_thread(self._save)
         except Exception as e:
             logger.error(f"Error during save: {e}")
 
     def load(self, storage_file: str = None) -> None:
-        storage_file = storage_file or self.sessions_filename
         if not self.storage_path.exists():
             return None
-        sessions_path = self.storage_path / storage_file
-        if sessions_path.exists():
+        if self.sessions_path.exists():
             try:
-                with sessions_path.open("rb") as f:
+                with self.sessions_path.open("rb") as f:
                     self.sessions = pickle.load(f)
                     logger.debug(f"Loaded: {self.sessions}")
             except Exception as e:
