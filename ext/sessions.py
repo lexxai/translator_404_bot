@@ -5,6 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 
 logger = logging.getLogger("bot." + __name__)
+locker = asyncio.Lock()
 
 
 class Category(StrEnum):
@@ -54,7 +55,12 @@ class Sessions:
             logger.error(e)
 
     async def save(self, storage_file: str = None):
-        await asyncio.to_thread(self._save, storage_file)
+        async with locker:
+            try:
+                # Run the blocking I/O operation in a separate thread
+                await asyncio.to_thread(self._save, storage_file)
+            except Exception as e:
+                logger.error(f"Error during save: {e}")
 
     def load(self, storage_file: str = None) -> None:
         storage_file = storage_file or self.sessions_filename
