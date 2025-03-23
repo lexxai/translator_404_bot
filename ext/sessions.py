@@ -31,30 +31,18 @@ class Sessions:
     def __str__(self):
         return str(self.sessions)
 
-    def add(self, category: Category, group_id: int, value):
+    async def add(self, category: Category, group_id: int, value):
         self.sessions[category].setdefault(group_id, set()).add(value)
-        self.save()
+        await self.save()
 
-    def remove(self, category: Category, group_id: int, value):
+    async def remove(self, category: Category, group_id: int, value):
         self.sessions[category][group_id].discard(value)
-        self.save()
+        await self.save()
 
     def is_exists(self, category: Category, group_id: int, value):
         return value in self.sessions.get(category, {}).get(group_id, set())
 
-    def add_excluded_sender(self, sender_id, group_id: int):
-        self.add(Category.EXCLUDED_SENDERS, group_id, sender_id)
-
-    def remove_excluded_sender(self, sender_id, group_id: int):
-        category = Category.EXCLUDED_SENDERS
-        if group_id in self.sessions[category]:
-            self.remove(category, group_id, sender_id)  # remove
-
-    def is_excluded_sender(self, sender_id: int, group_id: int):
-        category = Category.EXCLUDED_SENDERS
-        return self.is_exists(category, group_id, sender_id)
-
-    def save(self, storage_file: str = None):
+    async def save(self, storage_file: str = None):
         storage_file = storage_file or self.sessions_filename
         self.storage_path.mkdir(parents=True, exist_ok=True)
         excluded_senders_path = self.storage_path / storage_file
