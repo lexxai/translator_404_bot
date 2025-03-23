@@ -301,7 +301,7 @@ async def handler(event):
             return
         original_text = extract_text_from_message(event.message)
 
-        detected_language = language_detection.detect_language(original_text)
+        detected_language = await language_detection.detect_language(original_text)
         if detected_language not in excluded_languages:
             translated_text = await translator.translate(
                 original_text, dest=destination_language

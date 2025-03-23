@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from base64 import b64decode
 
@@ -29,7 +30,7 @@ class LanguageDetection:
     def map_lang(cls, lang):
         return cls.languages_map.get(lang, lang)
 
-    def detect_language(self, text):
+    def _detect_language(self, text):
         # detected_language = detect(text)
         detected_languages = detect_langs(text)
         detected_language = (
@@ -45,3 +46,6 @@ class LanguageDetection:
         # print(f"{detected_language=}")
         logger.debug(f"{detected_language=}, {detected_languages=}")
         return detected_language
+
+    async def detect_language(self, text):
+        return await asyncio.to_thread(self._detect_language, text)
