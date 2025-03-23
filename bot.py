@@ -35,7 +35,9 @@ from_users = os.environ.get("FROM_USERS", [])
 if isinstance(from_users, str):
     from_users = [u.strip() for u in from_users.strip().split(",") if u.strip()]
 destination_language = os.environ.get("DESTINATION_LANGUAGE", "uk")
-storage_path = Path(os.environ.get("STORAGE_PATH", "storage"))
+storage_path = Path(
+    os.environ.get("STORAGE_PATH", Path(__file__).parent.joinpath("storage"))
+)
 excluded_languages = os.environ.get("EXCLUDED_LANGUAGES", [])
 if isinstance(excluded_languages, str):
     excluded_languages = [
@@ -218,6 +220,13 @@ async def handler_check(event):
         if not group_name:
             await event.reply("Unknown group.")
             return None
+        sender_language = event.sender.lang_code
+        if sender_language and sender_language == destination_language:
+            await client.send_message(
+                sender_id,
+                f"You are always **excluded** for automic translates by telegram settings.",
+            )
+            return
         await client.send_message(
             sender_id,
             f"You are **{'excluded' if excluded else 'included'}** for using the bot in group: '{group_name}'.",
