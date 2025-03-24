@@ -13,9 +13,9 @@ class Category(StrEnum):
 
 
 class Sessions:
-    def __init__(self, storage_path: Path = None):
+    def __init__(self, storage_path: Path = None, sessions_filename: str = None):
         self.sessions = {Category.EXCLUDED_SENDERS: {}, Category.INFORMED: {}}
-        self.sessions_filename = ".sessions.pickle"
+        self.sessions_filename = sessions_filename or ".sessions.pickle"
         self.storage_path = storage_path or Path(__file__).parent.parent.joinpath(
             "storage"
         )
