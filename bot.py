@@ -2,7 +2,6 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
-from tomllib import load as load_toml
 
 from telethon import TelegramClient, events
 from googletrans import Translator
@@ -11,8 +10,10 @@ from dotenv import load_dotenv
 from telethon.errors import UserNotParticipantError
 from telethon.tl.functions.channels import GetParticipantRequest
 
+from ext.local_translated import LocalTranslated
 from ext.sessions import Sessions, Category
 from ext.language_detection import LanguageDetection
+from utils import get_version
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", level=logging.INFO
@@ -59,7 +60,7 @@ if debug:
 language_detection = LanguageDetection(destination_language, excluded_languages)
 sessions = Sessions(storage_path)
 translator = Translator()
-t_cache = {}
+local_translated = LocalTranslated(translator, destination_language)
 
 client = TelegramClient(
     storage_path / ".bot",
@@ -72,29 +73,8 @@ client = TelegramClient(
 
 def get_sender_language(event) -> str:
     # logger.debug(f"{event.sender.lang_code=}")
+    # return "en"
     return event.sender.lang_code
-
-
-async def gettext(input_text, src: str = "en", dest: str = destination_language) -> str:
-    if src == "en":
-        return input_text
-    if input_text in t_cache:
-        return t_cache[input_text]
-    r = await translator.translate(input_text, dest=dest)
-    t_cache[input_text] = r.text
-    return r.text
-
-
-def get_version():
-    pyproject_toml = Path(__file__).parent / "pyproject.toml"
-    try:
-        if not pyproject_toml.exists():
-            raise FileNotFoundError
-        with pyproject_toml.open("rb") as f:
-            return load_toml(f)["tool"]["poetry"]["version"]
-    except Exception as e:
-        logger.error(e)
-        return "0.0.1-dev"
 
 
 def get_command_args(event):
@@ -111,7 +91,7 @@ async def get_chat_id_from_arg(event) -> int | None:
     chat_id = int(arg_1) if arg_1 else event.chat_id
     if not arg_1 and not event.is_group:
         await event.reply(
-            await gettext(
+            await local_translated.gettext(
                 "You must specify a group ID or join a group to use this command.",
                 get_sender_language(event),
             )
@@ -155,7 +135,7 @@ async def answer_private_message(
         group_name = await get_group_name(chat_id=chat_id)
         if group_name:
             await event.reply(
-                await gettext(
+                await local_translated.gettext(
                     "I've sent the answer to you privately. Check your personal messages from this bot! This notification will only be shown to you once.",
                     get_sender_language(event),
                 )
@@ -180,7 +160,7 @@ async def is_sender_in_group(event, chat_id: int | None = None):
         except (UserNotParticipantError, IndexError):
             logger.debug(f"User {event.sender_id} is NOT a member of the group.")
             await event.reply(
-                await gettext(
+                await local_translated.gettext(
                     "You must be a member of the group to use this command. Please join the group and try again.",
                     get_sender_language(event),
                 )
@@ -204,7 +184,7 @@ async def get_group_name(event=None, chat_id: str | int | None = None) -> str | 
 async def handler_chat_id(event):
     if not event.is_group:
         await event.reply(
-            await gettext(
+            await local_translated.gettext(
                 "You must join a group to use this command.", get_sender_language(event)
             )
         )
@@ -224,19 +204,25 @@ async def handler_help(event):
     try:
         src = get_sender_language(event)
         help_text = [
-            "/help - " + await gettext("Help with commands", src),
+            "/help - " + await local_translated.gettext("Help with commands", src),
             "/translate <lang> <text> - "
-            + await gettext("Translate to desired language of entered text", src),
+            + await local_translated.gettext(
+                "Translate to desired language of entered text", src
+            ),
             "/chat_id - "
-            + await gettext(" Show ", src)
+            + await local_translated.gettext(" Show ", src)
             + " chat_id "
-            + await gettext("of this group", src),
+            + await local_translated.gettext("of this group", src),
             "/exclude <group_id> - "
-            + await gettext(" Exclude current user from automatic translations", src),
+            + await local_translated.gettext(
+                " Exclude current user from automatic translations", src
+            ),
             "/include <group_id> - "
-            + await gettext(" Include current user for automatic translations", src),
+            + await local_translated.gettext(
+                " Include current user for automatic translations", src
+            ),
             "/check <group_id> - "
-            + await gettext(
+            + await local_translated.gettext(
                 " Check if included current user for automatic translations", src
             ),
             "",
@@ -266,7 +252,7 @@ async def handler_check(event):
         if sender_language and sender_language == destination_language:
             await client.send_message(
                 sender_id,
-                await gettext(
+                await local_translated.gettext(
                     f"You are always excluded for automic translates by telegram settings.",
                     get_sender_language(event),
                 ),
@@ -274,7 +260,7 @@ async def handler_check(event):
             return
         await client.send_message(
             sender_id,
-            await gettext(
+            await local_translated.gettext(
                 f"You are {'excluded' if excluded else 'included'} for using the bot in group: ",
                 get_sender_language(event),
             )
@@ -298,12 +284,14 @@ async def handler_exclude(event):
         group_name = await get_group_name(chat_id=chat_id)
         if not group_name:
             await event.reply(
-                await gettext("Unknown group.", get_sender_language(event))
+                await local_translated.gettext(
+                    "Unknown group.", get_sender_language(event)
+                )
             )
             return None
         await client.send_message(
             sender_id,
-            await gettext(
+            await local_translated.gettext(
                 f"You have been excluded from using the bot in group: ",
                 get_sender_language(event),
             )
@@ -324,14 +312,14 @@ async def handler_include(event):
             return None
         group_name = await get_group_name(event, chat_id=chat_id)
         if not group_name:
-            await gettext("Unknown group.", get_sender_language(event))
+            await local_translated.gettext("Unknown group.", get_sender_language(event))
             return None
         await sessions.remove(Category.EXCLUDED_SENDERS, chat_id, event.sender_id)
         sender_id = event.sender_id
 
         await client.send_message(
             sender_id,
-            await gettext(
+            await local_translated.gettext(
                 f"You have been included for using the bot in group: ",
                 get_sender_language(event),
             )
@@ -358,7 +346,9 @@ async def translate_handler(event):
             text = args[0]
         else:
             await event.reply(
-                await gettext("Missing text to translate.", get_sender_language(event))
+                await local_translated.gettext(
+                    "Missing text to translate.", get_sender_language(event)
+                )
             )
             return
 
@@ -367,7 +357,9 @@ async def translate_handler(event):
             "".join(
                 [
                     "",
-                    await gettext("Translated message:", get_sender_language(event)),
+                    await local_translated.gettext(
+                        "Translated message:", get_sender_language(event)
+                    ),
                     f" ({language_detection.map_lang(target_lang)}):\n{translated.text}",
                 ]
             )
@@ -408,7 +400,7 @@ async def handler(event):
             await event.reply(
                 "".join(
                     [
-                        await gettext(
+                        await local_translated.gettext(
                             "Translated message:", get_sender_language(event)
                         ),
                         f" ({language_detection.map_lang(detected_language)}):\n{translated_text.text}",
