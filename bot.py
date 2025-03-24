@@ -22,7 +22,6 @@ logger = logging.getLogger("bot")
 logging.getLogger("telethon").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
 load_dotenv()
 
 # Your API credentials (Get from https://my.telegram.org)
@@ -35,7 +34,9 @@ from_users = os.environ.get("FROM_USERS", [])
 if isinstance(from_users, str):
     from_users = [u.strip() for u in from_users.strip().split(",") if u.strip()]
 destination_language = os.environ.get("DESTINATION_LANGUAGE", "uk")
-storage_path = Path(os.environ.get("STORAGE_PATH", "storage"))
+storage_path = Path(
+    os.environ.get("STORAGE_PATH", Path(__file__).parent.joinpath("storage"))
+)
 excluded_languages = os.environ.get("EXCLUDED_LANGUAGES", [])
 if isinstance(excluded_languages, str):
     excluded_languages = [
@@ -48,15 +49,17 @@ use_intro_message = (
 )
 debug = os.environ.get("DEBUG", "False").strip().lower() == "true"
 excluded_languages.append(destination_language)
-
+trust_telegram_language = (
+    os.environ.get("TRUST_TELEGRAM_LANGUAGE", "true").strip().lower() == "true"
+)
 
 if debug:
     logger.setLevel(logging.DEBUG)
 
-
 language_detection = LanguageDetection(destination_language, excluded_languages)
 sessions = Sessions(storage_path)
 translator = Translator()
+t_cache = {}
 
 client = TelegramClient(
     storage_path / ".bot",
@@ -65,6 +68,21 @@ client = TelegramClient(
     lang_code=destination_language,
     use_ipv6=use_ipv6,
 ).start(bot_token=bot_token)
+
+
+def get_sender_language(event) -> str:
+    # logger.debug(f"{event.sender.lang_code=}")
+    return event.sender.lang_code
+
+
+async def gettext(input_text, src: str = "en", dest: str = destination_language) -> str:
+    if src == "en":
+        return input_text
+    if input_text in t_cache:
+        return t_cache[input_text]
+    r = await translator.translate(input_text, dest=dest)
+    t_cache[input_text] = r.text
+    return r.text
 
 
 def get_version():
@@ -83,7 +101,9 @@ def get_command_args(event):
     match = event.pattern_match
     result = match.groups()
     # logger.debug(f"{result=}")
-    return result
+    return [
+        x.strip() for x in result if x and x.strip() and (x.startswith("@") is False)
+    ]
 
 
 async def get_chat_id_from_arg(event) -> int | None:
@@ -91,7 +111,10 @@ async def get_chat_id_from_arg(event) -> int | None:
     chat_id = int(arg_1) if arg_1 else event.chat_id
     if not arg_1 and not event.is_group:
         await event.reply(
-            "You must specify a group ID or join a group to use this command."
+            await gettext(
+                "You must specify a group ID or join a group to use this command.",
+                get_sender_language(event),
+            )
         )
         return None
     return chat_id
@@ -132,7 +155,10 @@ async def answer_private_message(
         group_name = await get_group_name(chat_id=chat_id)
         if group_name:
             await event.reply(
-                "I've sent the answer to you privately. Check your personal messages from this bot! This notification will only be shown to you once."
+                await gettext(
+                    "I've sent the answer to you privately. Check your personal messages from this bot! This notification will only be shown to you once.",
+                    get_sender_language(event),
+                )
             )
     except Exception as e:
         logger.error(e)
@@ -154,7 +180,10 @@ async def is_sender_in_group(event, chat_id: int | None = None):
         except (UserNotParticipantError, IndexError):
             logger.debug(f"User {event.sender_id} is NOT a member of the group.")
             await event.reply(
-                "You must be a member of the group to use this command. Please join the group and try again."
+                await gettext(
+                    "You must be a member of the group to use this command. Please join the group and try again.",
+                    get_sender_language(event),
+                )
             )
         except Exception as e:
             logger.error(e)
@@ -174,7 +203,11 @@ async def get_group_name(event=None, chat_id: str | int | None = None) -> str | 
 @client.on(events.NewMessage(pattern=r"^/chat_id"))
 async def handler_chat_id(event):
     if not event.is_group:
-        await event.reply("You must join a group to use this command.")
+        await event.reply(
+            await gettext(
+                "You must join a group to use this command.", get_sender_language(event)
+            )
+        )
         return None
     chat_id = int(event.chat_id)
     sender_id = event.sender_id
@@ -188,17 +221,29 @@ async def handler_chat_id(event):
 
 @client.on(events.NewMessage(pattern=r"^/help"))
 async def handler_help(event):
-    help_text = (
-        "/help - Help with commands\n"
-        "/translate <lang> <text>- Translate to desired language of entered text\n"
-        "/chat_id - Show chat_id of group\n"
-        "/exclude <group_id> - Exclude current user from automatically translates\n"
-        "/include <group_id> - Include current user for automatically translates\n"
-        "/check <group_id> - Check if included current user for automatically translates\n"
-        "\n__Version: {version}__".format(version=__version__)
-    )
     try:
-        await event.reply(help_text)
+        src = get_sender_language(event)
+        help_text = [
+            "/help - " + await gettext("Help with commands", src),
+            "/translate <lang> <text> - "
+            + await gettext("Translate to desired language of entered text", src),
+            "/chat_id - "
+            + await gettext(" Show ", src)
+            + " chat_id "
+            + await gettext("of this group", src),
+            "/exclude <group_id> - "
+            + await gettext(" Exclude current user from automatic translations", src),
+            "/include <group_id> - "
+            + await gettext(" Include current user for automatic translations", src),
+            "/check <group_id> - "
+            + await gettext(
+                " Check if included current user for automatic translations", src
+            ),
+            "",
+            "__Version: {version}__".format(version=__version__),
+        ]
+
+        await event.reply("\n".join(help_text))
     except Exception as e:
         logger.error(e)
 
@@ -217,10 +262,24 @@ async def handler_check(event):
         if not group_name:
             await event.reply("Unknown group.")
             return None
+        sender_language = event.sender.lang_code
+        if sender_language and sender_language == destination_language:
+            await client.send_message(
+                sender_id,
+                await gettext(
+                    f"You are always excluded for automic translates by telegram settings.",
+                    get_sender_language(event),
+                ),
+            )
+            return
         await client.send_message(
             sender_id,
-            f"You are **{'excluded' if excluded else 'included'}** for using the bot in group: '{group_name}'.",
-        )
+            await gettext(
+                f"You are {'excluded' if excluded else 'included'} for using the bot in group: ",
+                get_sender_language(event),
+            )
+            + f"'{group_name}'.",
+        ),
         await answer_private_message(event)
     except Exception as e:
         logger.error(e)
@@ -238,11 +297,17 @@ async def handler_exclude(event):
         sender_id = event.sender_id
         group_name = await get_group_name(chat_id=chat_id)
         if not group_name:
-            await event.reply("Unknown group.")
+            await event.reply(
+                await gettext("Unknown group.", get_sender_language(event))
+            )
             return None
         await client.send_message(
             sender_id,
-            f"You have been **excluded** from using the bot in group: '{group_name}'.",
+            await gettext(
+                f"You have been excluded from using the bot in group: ",
+                get_sender_language(event),
+            )
+            + f"'{group_name}'.",
         )
         await answer_private_message(event)
     except Exception as e:
@@ -259,29 +324,53 @@ async def handler_include(event):
             return None
         group_name = await get_group_name(event, chat_id=chat_id)
         if not group_name:
-            await event.reply("Unknown group.")
+            await gettext("Unknown group.", get_sender_language(event))
             return None
         await sessions.remove(Category.EXCLUDED_SENDERS, chat_id, event.sender_id)
         sender_id = event.sender_id
 
         await client.send_message(
             sender_id,
-            f"You have been **included** for using the bot in group: '{group_name}'.",
+            await gettext(
+                f"You have been included for using the bot in group: ",
+                get_sender_language(event),
+            )
+            + f"'{group_name}'.",
         )
         await answer_private_message(event)
     except Exception as e:
         logger.error(e)
 
 
-@client.on(events.NewMessage(pattern=r"^/translate\s+(\w+)\s+(.+)"))
+@client.on(events.NewMessage(pattern=r"^/translate(?:\s+(\S+)(?:\s+(.+))?)?$"))
 async def translate_handler(event):
-    args = get_command_args(event)
-    target_lang = args[0]
-    text = args[1]
     try:
+        args = get_command_args(event)
+        if len(args) == 2:
+            target_lang = args[0]
+            if len(target_lang) == 2 and target_lang.islower():
+                text = args[1]
+            else:
+                target_lang = destination_language
+                text = " ".join(args)
+        elif len(args) == 1:
+            target_lang = destination_language
+            text = args[0]
+        else:
+            await event.reply(
+                await gettext("Missing text to translate.", get_sender_language(event))
+            )
+            return
+
         translated = await translator.translate(text, dest=target_lang)
         await event.reply(
-            f"**Translated ({language_detection.map_lang(target_lang)}):**\n{translated.text}"
+            "".join(
+                [
+                    "",
+                    await gettext("Translated message:", get_sender_language(event)),
+                    f" ({language_detection.map_lang(target_lang)}):\n{translated.text}",
+                ]
+            )
         )
     except Exception as e:
         try:
@@ -298,16 +387,33 @@ async def handler(event):
         if sessions.is_exists(
             Category.EXCLUDED_SENDERS, event.chat_id, event.sender_id
         ):
+            logger.debug(f"Sender '{event.sender_id}' is excluded from translation.")
+            return
+        sender_language = event.sender.lang_code
+        if (
+            trust_telegram_language
+            and sender_language
+            and sender_language == destination_language
+        ):
+            logger.debug(
+                f"Sender language '{sender_language}' is trusted and excluded from translation."
+            )
             return
         original_text = extract_text_from_message(event.message)
-
-        detected_language = language_detection.detect_language(original_text)
+        detected_language = await language_detection.detect_language(original_text)
         if detected_language not in excluded_languages:
             translated_text = await translator.translate(
                 original_text, dest=destination_language
             )
             await event.reply(
-                f"🔄 **Translated ({language_detection.map_lang(detected_language)}):**\n{translated_text.text}"
+                "".join(
+                    [
+                        await gettext(
+                            "Translated message:", get_sender_language(event)
+                        ),
+                        f" ({language_detection.map_lang(detected_language)}):\n{translated_text.text}",
+                    ]
+                )
             )
 
     except Exception as e:
@@ -331,9 +437,8 @@ if __name__ == "__main__":
     __version__: str | Any = os.environ.get("VERSION", get_version())
     logger.debug(f"Version: {__version__}")
     sessions.load()
-    logger.debug(f"{sessions.excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
-    logger.debug(f"{from_users=}")
+    logger.debug(f"{trust_telegram_language=}")
 
     try:
         with client:

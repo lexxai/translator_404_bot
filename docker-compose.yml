@@ -15,7 +15,11 @@ services:
         reservations:
           cpus: "0.2"   # Reserve at least 0.5 CPU cores
           memory: "128M"  # Reserve at least 128MB
-
+    healthcheck:
+      test: pidof python bot.py > /dev/null || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
 volumes:
   _storage:
 
