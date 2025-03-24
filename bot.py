@@ -22,7 +22,6 @@ logger = logging.getLogger("bot")
 logging.getLogger("telethon").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-
 load_dotenv()
 
 # Your API credentials (Get from https://my.telegram.org)
@@ -347,9 +346,8 @@ if __name__ == "__main__":
     __version__: str | Any = os.environ.get("VERSION", get_version())
     logger.debug(f"Version: {__version__}")
     sessions.load()
-    logger.debug(f"{sessions.excluded_senders=}")
     logger.debug(f"{excluded_languages=}")
-    logger.debug(f"{from_users=}")
+    logger.debug(f"{trust_telegram_language=}")
 
     try:
         with client:
