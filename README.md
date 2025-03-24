@@ -1,5 +1,16 @@
 # translator_404_bot
-Telegram bot for translating messages in chats with text in another language (404)
+
+A Telegram bot for translating messages in group chats when they contain text in another language.
+
+By default, the bot tries to detect the language of a message offline without translating it.  
+- If the detected language is in the excluded list, the message is not translated.  
+- If translation is needed, the bot uses Google Translate and replies to the group with the translated text, marking the detected language.
+
+## User Settings
+- Users can exclude or include themselves to skip automatic translation.
+
+## Additional Settings
+- If `TRUST_TELEGRAM_LANGUAGES` is enabled in the settings, the bot will first check the language provided by Telegram before attempting automatic detection.
 
 
 ### Installation
